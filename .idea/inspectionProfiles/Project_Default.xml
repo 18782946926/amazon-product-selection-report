@@ -1,0 +1,22 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="PyPackageRequirementsInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <list>
+          <option value="fastapi" />
+          <option value="uvicorn" />
+          <option value="streamlit" />
+          <option value="langgraph" />
+          <option value="langchain-core" />
+          <option value="httpx" />
+          <option value="python-docx" />
+          <option value="python-dotenv" />
+          <option value="pydantic" />
+          <option value="requests" />
+          <option value="openpyxl" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>
