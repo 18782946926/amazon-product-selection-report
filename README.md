@@ -4,8 +4,9 @@
 
 ## 功能特性
 
-- 📊 **一键生成报告**：上传 BSR 数据和评论文件，自动生成完整的选品评估报告
-- 📋 **6 大报告模块**：市场分析、竞争分析、BSR TOP100、竞品卖点与差评、推荐入场价、评论汇总
+- 📊 **一键生成报告**：上传 BSR、评论、关键词反查、US-Market 数据，自动生成完整的选品评估报告
+- 📋 **10 大报告模块**：市场分析、竞争分析、BSR TOP100、竞品分析、推荐入场价、产品上新方向、评论汇总、关键词反查、US 市场品类、综合结论
+- 🧠 **数据驱动决策**：上新优先级与首推品类统一采用 需求×销量×竞争度×收益×新品占比×质量评分 加权评分
 - 👥 **多人共享**：无需每个人安装 Python，通过浏览器即可使用
 - 📱 **响应式设计**：支持电脑和手机访问
 - 🔒 **数据安全**：文件仅在服务器临时处理，不持久化存储
@@ -18,10 +19,17 @@
 
 ## 本地安装与运行
 
+### 0. 克隆仓库
+
+```bash
+git clone https://github.com/18782946926/web-report-generator.git
+cd web-report-generator
+```
+
 ### 1. 安装依赖
 
 ```bash
-# 进入项目目录
+# 如果是从源码目录启动则进入项目目录
 cd web_report_generator
 
 # 创建虚拟环境（推荐）
@@ -45,7 +53,7 @@ python app.py
 
 ### 3. 访问服务
 
-打开浏览器，访问：`http://localhost:5000`
+打开浏览器，访问：`http://localhost:8000`
 
 ## 部署到云服务器
 
@@ -87,7 +95,7 @@ pip install gunicorn
 创建 `gunicorn_config.py`：
 
 ```python
-bind = "127.0.0.1:5000"
+bind = "127.0.0.1:8000"
 workers = 4
 worker_class = "sync"
 max_requests = 1000
@@ -144,7 +152,7 @@ server {
     server_name your-domain.com;  # 替换为你的域名或IP
 
     location / {
-        proxy_pass http://127.0.0.1:5000;
+        proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -191,7 +199,7 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
-EXPOSE 5000
+EXPOSE 8000
 CMD ["python", "app.py"]
 ```
 
@@ -203,7 +211,7 @@ services:
   report-generator:
     build: .
     ports:
-      - "5000:5000"
+      - "8000:8000"
     volumes:
       - ./uploads:/app/uploads
       - ./reports:/app/reports
@@ -220,16 +228,25 @@ docker-compose up -d
 
 ### 1. 准备数据文件
 
-**BSR 数据文件：**
+**BSR 数据文件（必填）：**
 - 使用卖家精灵导出 BSR Excel 文件
 - 文件需包含 "US" 工作表
 - 建议命名格式：`BSR(...)-100-US-日期.xlsx`
 
-**评论数据文件：**
+**评论数据文件（可选，支持多个）：**
 - 使用卖家精灵导出评论 Excel 文件
 - 文件名需包含 "Reviews"
 - 建议命名格式：`ASIN-US-Reviews-日期.xlsx`
-- 可上传多个评论文件
+
+**关键词反查文件（可选）：**
+- 使用卖家精灵 ASIN 反查导出
+- 建议命名格式：`ReverseASIN-US-ASIN(...)-日期.xlsx`
+- 提供后报告会生成「关键词反查」Sheet（广告竞争格局 / 关键词贡献度）
+
+**US-Market 品类数据（可选）：**
+- 使用卖家精灵品类 Last-30-days 导出
+- 建议命名格式：`US-Market-<Category>-Last-30-days-...xlsx`
+- 提供后报告会生成「US 市场品类」Sheet
 
 ### 2. 上传文件
 
@@ -244,14 +261,18 @@ docker-compose up -d
 
 ## 报告包含内容
 
-| Sheet | 内容说明 |
-|-------|---------|
-| 市场分析 | 类目规模、价格分布、产品类型收益对比 |
-| 竞争分析 | 品牌集中度、中国卖家占比、新品存活率 |
-| BSR TOP100 | 完整产品数据表 |
-| 竞品卖点与差评 | 正向卖点与差评痛点分析 |
-| 推荐入场价 | 各产品类型定价建议 |
-| 评论汇总 | 原始评论数据 |
+| # | Sheet | 内容说明 |
+|---|-------|---------|
+| 1 | 市场分析 | 类目规模、价格分布、产品类型收益对比 |
+| 2 | 竞争分析 | 品牌集中度、中国卖家占比、新品存活率、广告竞争格局 |
+| 3 | BSR TOP100 | 完整产品数据表 |
+| 4 | 竞品分析 | 竞品参数提取（标题 + Bullet Points）、重点 ASIN 参数深度、卖点与差评 TOP |
+| 5 | 推荐入场价 | 各产品类型定价建议（按统一评分排序） |
+| 6 | 产品上新方向 | 上新决策矩阵 + 优先级说明（数据驱动的叙述） |
+| 7 | 评论汇总 | 原始评论数据 |
+| 8 | 关键词反查 | 广告流量 vs 自然流量、关键词贡献度排名（需上传 ReverseASIN 文件） |
+| 9 | US 市场品类 | 品类级 Top 产品与价格区间（需上传 US-Market 文件） |
+| 10 | 综合结论 | 首推入场品类（含推荐功能参数 + 差异化升级方向） |
 
 ## 目录结构
 
@@ -282,7 +303,8 @@ A: 修改 `generate_report()` 函数中的列名映射逻辑
 
 ## 技术支持
 
-如有问题，请联系开发者。
+如有问题，请在 GitHub 提交 issue：
+https://github.com/18782946926/web-report-generator/issues
 
 ## 许可证
 

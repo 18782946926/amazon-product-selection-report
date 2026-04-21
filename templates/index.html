@@ -151,6 +151,7 @@
         .file-list {
             margin-top: 12px;
         }
+        .file-item::before { content: "📄"; font-size: 14px; }
         .file-item {
             display: flex;
             align-items: center;
@@ -162,7 +163,9 @@
             font-size: 13px;
             color: #333;
         }
-        .file-item::before { content: "📄"; font-size: 14px; }
+        .file-item .file-icon { font-size: 14px; }
+        .file-item .file-name { flex: 1; }
+        .file-item .file-size { color: #999; font-size: 12px; }
 
         /* ===== 格式提示 ===== */
         .format-tip {
@@ -185,8 +188,10 @@
             font-size: 12px;
             margin-right: 6px;
         }
-        .tag-blue  { background: #e6f4ff; color: #1677ff; border: 1px solid #91caff; }
-        .tag-green { background: #f6ffed; color: #389e0d; border: 1px solid #b7eb8f; }
+        .tag-blue   { background: #e6f4ff; color: #1677ff; border: 1px solid #91caff; }
+        .tag-green  { background: #f6ffed; color: #389e0d; border: 1px solid #b7eb8f; }
+        .tag-orange { background: #fff7e6; color: #d46b08; border: 1px solid #ffd591; }
+        .tag-red    { background: #fff1f0; color: #cf1322; border: 1px solid #ffa39e; }
 
         /* ===== 提交按钮 ===== */
         .submit-btn {
@@ -330,9 +335,9 @@
                     </div>
                     <div class="upload-zone" id="bsrZone">
                         <input type="file" id="bsr_file" name="bsr_file" accept=".xlsx,.xls" required>
-                        <span class="upload-icon">📁</span>
-                        <div class="upload-text">点击选择文件，或将文件拖拽到此处</div>
-                        <div class="upload-hint">仅支持 .xlsx 格式 &nbsp;|&nbsp; 卖家精灵导出的 BSR Excel（需含"US"工作表）</div>
+                        <span class="upload-icon" id="bsrIcon">📁</span>
+                        <div class="upload-text" id="bsrText">点击选择文件，或将文件拖拽到此处</div>
+                        <div class="upload-hint" id="bsrHint">仅支持 .xlsx 格式 &nbsp;|&nbsp; 卖家精灵导出的 BSR Excel（需含"US"工作表）</div>
                         <div class="upload-selected" id="bsrSelected"></div>
                     </div>
                 </div>
@@ -345,11 +350,44 @@
                     </div>
                     <div class="upload-zone" id="reviewZone">
                         <input type="file" id="review_files" name="review_files" accept=".xlsx,.xls" multiple>
-                        <span class="upload-icon">💬</span>
-                        <div class="upload-text">点击选择文件，或将文件拖拽到此处</div>
-                        <div class="upload-hint">支持多选（按住 Ctrl / Cmd）&nbsp;|&nbsp; 文件名需包含 "Reviews"</div>
+                        <span class="upload-icon" id="reviewIcon">💬</span>
+                        <div class="upload-text" id="reviewText">点击选择文件，或将文件拖拽到此处</div>
+                        <div class="upload-hint" id="reviewHint">支持多选（按住 Ctrl / Cmd）&nbsp;|&nbsp; 文件名需包含 "Reviews"</div>
+                        <div class="upload-selected" id="reviewSelected"></div>
                     </div>
                     <div class="file-list" id="reviewFileList"></div>
+                </div>
+
+                <!-- 第三步：Market分析文件 -->
+                <div style="margin-bottom: 24px;">
+                    <div class="step-header">
+                        <div class="step-num">3</div>
+                        <div class="step-label">上传 Market 分析文件（可选，用于类目趋势 + 关键词竞争 + 综合结论）</div>
+                    </div>
+                    <div class="upload-zone" id="marketZone">
+                        <input type="file" id="market_file" name="market_file" accept=".xlsx,.xls">
+                        <span class="upload-icon" id="marketIcon">📊</span>
+                        <div class="upload-text" id="marketText">点击选择 Market 分析文件</div>
+                        <div class="upload-hint" id="marketHint">文件名需包含 "Market" 或 "US-Market"</div>
+                        <div class="upload-selected" id="marketSelected"></div>
+                    </div>
+                    <div class="file-list" id="marketFileList"></div>
+                </div>
+
+                <!-- 第四步：关键词反查文件 -->
+                <div style="margin-bottom: 24px;">
+                    <div class="step-header">
+                        <div class="step-num">4</div>
+                        <div class="step-label">上传关键词反查文件（可选，用于关键词竞争度分析）</div>
+                    </div>
+                    <div class="upload-zone" id="keywordZone">
+                        <input type="file" id="keyword_file" name="keyword_file" accept=".xlsx,.xls">
+                        <span class="upload-icon" id="keywordIcon">🔍</span>
+                        <div class="upload-text" id="keywordText">点击选择 ReverseASIN 关键词文件</div>
+                        <div class="upload-hint" id="keywordHint">卖家精灵 ReverseASIN 导出，文件名含 "ReverseASIN" 或 "Keyword"</div>
+                        <div class="upload-selected" id="keywordSelected"></div>
+                    </div>
+                    <div class="file-list" id="keywordFileList"></div>
                 </div>
 
                 <!-- 格式说明 -->
@@ -392,8 +430,10 @@
             <ul class="steps-list">
                 <li>从<b>卖家精灵</b>导出目标类目的 BSR Excel 文件（.xlsx），上传到第一步。</li>
                 <li>（可选）导出各 ASIN 的评论文件，批量上传到第二步，可生成差评痛点分析。</li>
+                <li>（可选）导出 <b>Market 市场分析</b>文件到第三步，可生成类目趋势、季节性、生命周期分析。</li>
+                <li>（可选）导出 <b>ReverseASIN 关键词反查</b>文件到第四步，可生成关键词竞争度、PPC Bid 分析。</li>
                 <li>点击"生成选品评估报告"，等待 10-60 秒，系统完成分析后自动下载 Excel 报告。</li>
-                <li>生成的报告包含 <b>7 个分析 Sheet</b>，含市场分析、竞争分析、入场定价、上新方向等。</li>
+                <li>生成的报告包含 <b>10 个分析 Sheet</b>。</li>
             </ul>
 
             <div class="format-tip" style="background:#f0f7ff; border-color:#91caff; color:#003a8c; margin-top:16px;">
@@ -414,17 +454,25 @@
                 </thead>
                 <tbody>
                     <tr><td><span class="tag tag-blue">1</span></td><td>市场分析</td><td>类目月收入规模、价格分布、各产品类型收益对比</td></tr>
-                    <tr><td><span class="tag tag-blue">2</span></td><td>竞争分析</td><td>品牌集中度、中国卖家占比、新品存活率、卖家地区分布</td></tr>
+                    <tr><td><span class="tag tag-blue">2</span></td><td>竞争分析</td><td>品牌集中度、卖家分布、<b>核心关键词竞争度</b>（需关键词反查或Market文件）、<b>新品推广难度评估</b></td></tr>
                     <tr><td><span class="tag tag-blue">3</span></td><td>BSR TOP100</td><td>完整100个竞品数据，含毛利率估算</td></tr>
-                    <tr><td><span class="tag tag-blue">4</span></td><td>竞品卖点与差评</td><td>8维度正负向分析、各ASIN评论质量汇总</td></tr>
-                    <tr><td><span class="tag tag-blue">5</span></td><td>推荐入场价</td><td>6种产品类型定价区间、P25-P75分析、利润测算</td></tr>
-                    <tr><td><span class="tag tag-green">6</span></td><td>产品上新方向</td><td>7个新品机会方向、P1-P4优先级、决策矩阵</td></tr>
-                    <tr><td><span class="tag tag-blue">7</span></td><td>评论数据汇总</td><td>原始评论数据、差评高亮标记（需上传评论文件）</td></tr>
+                    <tr><td><span class="tag tag-blue">4</span></td><td>推荐入场价</td><td>6种产品类型定价区间、P25-P75分析、利润测算</td></tr>
+                    <tr><td><span class="tag tag-blue">5</span></td><td>竞品卖点与差评</td><td><b>Top 10 竞品参数横向对比</b> + 8维度正负向卖点/差评分析</td></tr>
+                    <tr><td><span class="tag tag-green">6</span></td><td>产品上新方向</td><td>7个新品机会方向、P1-P4优先级、行动计划总结</td></tr>
+                    <tr><td><span class="tag tag-blue">7</span></td><td>评论数据汇总</td><td>原始评论数据、差评高亮标记、高频痛点/好评词Top10</td></tr>
+                    <tr><td><span class="tag tag-orange">8</span></td><td>类目趋势</td><td>月度销售走势、核心词搜索趋势、季节性波动、生命周期判断、集中度（需Market文件）</td></tr>
+                    <tr><td><span class="tag tag-red">9</span></td><td>风险预估</td><td>品类自适应风险矩阵：专利/UL/FCC/UN38.3/CPSIA/平台政策 + 合规清单</td></tr>
+                    <tr><td><span class="tag tag-green">10</span></td><td>选品综合结论</td><td>8 维度加权评分、综合星级评级、首推品类、六点最终建议</td></tr>
                 </tbody>
             </table>
+            <div style="margin-top:12px; font-size:12px; color:#666;">
+                <span style="background:#d4edff; padding:2px 6px; border-radius:3px; margin-right:8px;">基础功能</span>
+                <span style="background:#ffe4b5; padding:2px 6px; border-radius:3px; margin-right:8px;">进阶功能</span>
+                <span style="background:#ffe4e4; padding:2px 6px; border-radius:3px;">风险分析</span>
+            </div>
         </div>
 
-        <div class="footer">选品报告生成系统 v2.0 &nbsp;|&nbsp; 仅支持卖家精灵导出格式</div>
+        <div class="footer">选品报告生成系统 v2.1 &nbsp;|&nbsp; 仅支持卖家精灵导出格式</div>
     </div>
 
     <script>
@@ -432,12 +480,21 @@
         document.getElementById('bsr_file').addEventListener('change', function(e) {
             const file = e.target.files[0];
             const el = document.getElementById('bsrSelected');
+            const icon = document.getElementById('bsrIcon');
+            const text = document.getElementById('bsrText');
+            const hint = document.getElementById('bsrHint');
             if (file) {
-                el.textContent = '已选择：' + file.name;
+                el.textContent = '📁 已选择：' + file.name;
                 document.getElementById('bsrZone').style.borderColor = '#1a56c4';
                 document.getElementById('bsrZone').style.background = '#edf2ff';
+                if (icon) icon.style.display = 'none';
+                if (text) text.style.display = 'none';
+                if (hint) hint.style.display = 'none';
             } else {
                 el.textContent = '';
+                if (icon) icon.style.display = 'block';
+                if (text) text.style.display = 'block';
+                if (hint) hint.style.display = 'block';
             }
         });
 
@@ -445,15 +502,23 @@
         document.getElementById('review_files').addEventListener('change', function(e) {
             const files = e.target.files;
             const list = document.getElementById('reviewFileList');
+            const icon = document.getElementById('reviewIcon');
+            const text = document.getElementById('reviewText');
+            const hint = document.getElementById('reviewHint');
+            const selected = document.getElementById('reviewSelected');
             list.innerHTML = '';
             if (files.length > 0) {
                 document.getElementById('reviewZone').style.borderColor = '#1a56c4';
                 document.getElementById('reviewZone').style.background = '#edf2ff';
+                if (icon) icon.style.display = 'none';
+                if (text) text.style.display = 'none';
+                if (hint) hint.style.display = 'none';
+                if (selected) selected.textContent = '💬 已选择 ' + files.length + ' 个评论文件';
                 const max = Math.min(files.length, 10);
                 for (let i = 0; i < max; i++) {
                     const div = document.createElement('div');
                     div.className = 'file-item';
-                    div.textContent = files[i].name;
+                    div.innerHTML = '<span class="file-icon">💬</span><span class="file-name">' + files[i].name + '</span><span class="file-size">' + formatSize(files[i].size) + '</span>';
                     list.appendChild(div);
                 }
                 if (files.length > 10) {
@@ -463,6 +528,77 @@
                     div.textContent = '还有 ' + (files.length - 10) + ' 个文件...';
                     list.appendChild(div);
                 }
+            } else {
+                if (icon) icon.style.display = 'block';
+                if (text) text.style.display = 'block';
+                if (hint) hint.style.display = 'block';
+                if (selected) selected.textContent = '';
+            }
+        });
+
+        // Market文件选择
+        document.getElementById('market_file').addEventListener('change', function(e) {
+            const files = e.target.files;
+            const list = document.getElementById('marketFileList');
+            const selected = document.getElementById('marketSelected');
+            const zone = document.getElementById('marketZone');
+            const icon = document.getElementById('marketIcon');
+            const text = document.getElementById('marketText');
+            const hint = document.getElementById('marketHint');
+            list.innerHTML = '';
+            if (files.length > 0) {
+                zone.style.borderColor = '#1a56c4';
+                zone.style.background = '#edf2ff';
+                if (icon) icon.style.display = 'none';
+                if (text) text.style.display = 'none';
+                if (hint) hint.style.display = 'none';
+                if (selected) selected.textContent = '📊 已选择：' + files[0].name;
+                for (let i = 0; i < files.length; i++) {
+                    const div = document.createElement('div');
+                    div.className = 'file-item';
+                    div.innerHTML = '<span class="file-icon">📊</span><span class="file-name">' + files[i].name + '</span><span class="file-size">' + formatSize(files[i].size) + '</span>';
+                    list.appendChild(div);
+                }
+            } else {
+                zone.style.borderColor = '';
+                zone.style.background = '';
+                if (icon) icon.style.display = 'block';
+                if (text) text.style.display = 'block';
+                if (hint) hint.style.display = 'block';
+                if (selected) selected.textContent = '';
+            }
+        });
+
+        // 关键词文件选择
+        document.getElementById('keyword_file').addEventListener('change', function(e) {
+            const files = e.target.files;
+            const list = document.getElementById('keywordFileList');
+            const selected = document.getElementById('keywordSelected');
+            const zone = document.getElementById('keywordZone');
+            const icon = document.getElementById('keywordIcon');
+            const text = document.getElementById('keywordText');
+            const hint = document.getElementById('keywordHint');
+            list.innerHTML = '';
+            if (files.length > 0) {
+                zone.style.borderColor = '#1a56c4';
+                zone.style.background = '#edf2ff';
+                if (icon) icon.style.display = 'none';
+                if (text) text.style.display = 'none';
+                if (hint) hint.style.display = 'none';
+                if (selected) selected.textContent = '🔍 已选择：' + files[0].name;
+                for (let i = 0; i < files.length; i++) {
+                    const div = document.createElement('div');
+                    div.className = 'file-item';
+                    div.innerHTML = '<span class="file-icon">🔍</span><span class="file-name">' + files[i].name + '</span><span class="file-size">' + formatSize(files[i].size) + '</span>';
+                    list.appendChild(div);
+                }
+            } else {
+                zone.style.borderColor = '';
+                zone.style.background = '';
+                if (icon) icon.style.display = 'block';
+                if (text) text.style.display = 'block';
+                if (hint) hint.style.display = 'block';
+                if (selected) selected.textContent = '';
             }
         });
 
@@ -487,6 +623,14 @@
             const reviewFiles = document.getElementById('review_files').files;
             for (let i = 0; i < reviewFiles.length; i++) {
                 formData.append('review_files', reviewFiles[i]);
+            }
+            const marketFile = document.getElementById('market_file').files[0];
+            if (marketFile) {
+                formData.append('market_file', marketFile);
+            }
+            const keywordFile = document.getElementById('keyword_file').files[0];
+            if (keywordFile) {
+                formData.append('keyword_file', keywordFile);
             }
 
             fetch('/upload', { method: 'POST', body: formData })
@@ -520,7 +664,7 @@
         }
 
         // 拖拽效果
-        ['bsrZone', 'reviewZone'].forEach(id => {
+        ['bsrZone', 'reviewZone', 'marketZone', 'keywordZone'].forEach(id => {
             const zone = document.getElementById(id);
             zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
             zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));

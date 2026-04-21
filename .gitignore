@@ -1,34 +1,37 @@
 # Python
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 *.pyd
 .Python
 *.egg-info/
-dist/
+*.egg
+
+# Virtual env
+venv/
+.venv/
+env/
+
+# PyInstaller 产物
 build/
+dist/
+*.spec.bak
 
-# IDE
-.idea/
-.vscode/
-*.iml
-
-# Logs
-*.log
-server*.log
-
-# Reports (generated files)
+# 运行产物
 reports/
-!.gitkeep
-
-# Uploads (user data)
 uploads/
+server.log
+server_err.log
+*.log
 
-# OS
+# IDE / OS
+.vscode/
+.idea/
+*.iml
 .DS_Store
 Thumbs.db
 
-# Virtual environments
-venv/
-env/
+# 数据与密钥
+*.xlsx
+*.xls
 .env
+.env.local
