@@ -1,323 +1,143 @@
-# 通用品类选品报告生成系统
+# 亚马逊选品报告生成系统
 
-一个基于 Flask + LLM 的 Web 服务，将亚马逊任意品类的选品分析自动化。**品类无关**：上传任何品类的卖家精灵导出数据，由 LLM 深度分析 4 份源数据生成定制化报告。
+基于 Flask + 通义千问（DashScope）的 Web 服务，把亚马逊任意品类的选品评估**自动化**：上传卖家精灵导出的 4 份数据，5 分钟出一份 10-sheet 完整 Excel 报告。**品类无关**——LED 灯、储钱罐、便携发电机、电池充电器、洗车枪、割草机均验证可跑。
 
-## 功能特性
+## 核心特性
 
-- 📊 **一键生成报告**：上传 BSR、评论、ExpandKeywords 关键词、US-Market 数据，自动生成完整的选品评估报告
-- 🤖 **LLM 深度分析**：4 份源数据由 LLM 独立分析为 Insight Pack（市场结构 / 用户评论 / 关键词流量 / 类目趋势），再综合合成策略
-- 🌐 **品类自动识别**：从 BSR 文件名自动识别品类，无需手动选择；任意品类同等支持
-- 📋 **10 大报告模块**：市场分析、竞争分析、BSR TOP100、推荐入场价、竞品分析、产品上新方向、评论汇总、关键词分析、类目趋势、综合结论
-- 🧠 **数值算法保留**：八维评分、价格分布、品牌集中度等数值由代码算（不交给 LLM 编造）；文案由 LLM 写
-- 🛡️ **降级可用**：LLM 不可用时每个 Pack 独立降级到硬编码统计，报告永远能生成
-- 👥 **多人共享**：通过浏览器即可使用
-- 🔒 **数据安全**：文件仅在服务器临时处理，不持久化存储
+- 🖼️ **视觉 LLM 二审**：调用 Qwen-VL-Max 对每个 ASIN 的主图 + 标题 + bullet points 做形态/材质/动作三标签分析，比纯文本聚类更准
+- 🧩 **14 个 LLM 分析器**：BSR / VOC / 关键词 / Market / Spec / LabelMerger / Sheet5 改进 / Lifecycle 等并发跑，单条慢一点不阻塞整体
+- 🔢 **数值算法 + LLM 文案**：八维评分、结构型净利率、盈亏平衡采购上限等数值由代码算（不让 LLM 编造）；定性结论由 LLM 写
+- 🛡️ **每分析器独立降级**：单一 LLM 调用失败回退本地兜底模板，报告永远能生成
+- 🪟 **多窗口并发**：业务员同时开 2-3 个浏览器标签跑不同品类报告，会话隔离、互不串扰（文件名 uuid + 状态文件 sid 隔离 + 视觉 LLM per-key semaphore 钳）
+- 🔑 **LLM Key Pool**：支持 `DASHSCOPE_API_KEYS=key1,key2,key3` 多 key round-robin，配 N 个 key → N 个标签真并发不抢配额
+- 📦 **零安装打包版**：内部分发提供 `选品报告生成系统.zip`（含嵌入式 Python），同事解压双击 `启动.bat` 即用
 
-## LLM 配置（可选）
+## 10-Sheet 报告内容
 
-支持国内 LLM 提供商：DeepSeek（默认） / 通义千问 / 豆包。复制 `.env.example` 为 `.env`，填入对应 API_KEY：
+| # | Sheet | 内容 |
+|---|---|---|
+| 1 | 市场分析 | 类目规模、价格分布、产品类型收益对比、市场结论 |
+| 2 | 竞争分析 | 品牌集中度、中国卖家占比、新品存活窗口、BuyBox 美卖头部品牌 |
+| 3 | BSR TOP100 | 完整产品数据 + LLM 视觉标签（O/P 列：形态/材质归类） |
+| 4 | 入场利润测算 | 推荐入场售价、5 项成本扣减、结构型净利、成本结构优化空间、盈亏平衡采购上限（5 档） |
+| 5 | 重点 ASIN 参数 | Top10 表 + 重点 ASIN 参数深度、卖点/痛点矩阵、改进方向 |
+| 6 | 产品上新方向 | P1-P4 优先级矩阵 + 数据驱动的上新叙述 |
+| 7 | 评论汇总 | 原始评论数据 |
+| 8 | 关键词分析 | 关键词竞争度 / PPC Bid / 贡献度排名（需上传 ExpandKeywords 文件） |
+| 9 | US 市场品类 | 品类级 Top 产品与价格区间（需上传 US-Market 文件） |
+| 10 | 综合结论 | 首推入场子品类（推荐功能参数 + 差异化升级方向 + 结构型净利率验证） |
+
+## 快速开始（开发环境）
+
+### 1. 克隆
 
 ```bash
-LLM_PROVIDER=deepseek
-DEEPSEEK_API_KEY=sk-xxx
+git clone https://github.com/18782946926/amazon-product-selection-report.git
+cd amazon-product-selection-report
 ```
 
-未配置 API_KEY 时系统自动走全量降级模式（基础统计 + 通用模板），仍能生成 10-Sheet 报告。
-
-## 系统要求
-
-- Python 3.8 或更高版本
-- 内存建议 2GB 以上
-- 硬盘空间 1GB 以上
-
-## 本地安装与运行
-
-### 0. 克隆仓库
+### 2. 装环境
 
 ```bash
-git clone https://github.com/18782946926/web-report-generator.git
-cd web-report-generator
-```
-
-### 1. 安装依赖
-
-```bash
-# 如果是从源码目录启动则进入项目目录
-cd web_report_generator
-
-# 创建虚拟环境（推荐）
 python -m venv venv
-
-# 激活虚拟环境
-# Windows:
+# Windows
 venv\Scripts\activate
-# macOS/Linux:
+# macOS/Linux
 source venv/bin/activate
 
-# 安装依赖
 pip install -r requirements.txt
 ```
 
-### 2. 运行服务
+### 3. 配 API key
+
+```bash
+cp .env.example .env
+# 编辑 .env，填入 DASHSCOPE_API_KEY=sk-xxx（阿里云百炼）
+```
+
+多窗口并发想真隔离，填多 key（用逗号分隔）：
+
+```bash
+DASHSCOPE_API_KEYS=sk-aaa,sk-bbb,sk-ccc
+```
+
+### 4. 启动
 
 ```bash
 python app.py
 ```
 
-### 3. 访问服务
+浏览器打开 `http://localhost:8002`（端口可在 `.env` 的 `FLASK_PORT` 调）。
 
-打开浏览器，访问：`http://localhost:8000`
+## 输入数据规范
 
-## 部署到云服务器
+| 文件 | 是否必填 | 来源 | 命名约定 |
+|---|---|---|---|
+| BSR Top100 | ✅ 必填 | 卖家精灵 BSR 导出（含 "US" sheet） | `BSR(品类名)-100-US-日期.xlsx` |
+| 评论 | 可选（建议） | 卖家精灵 Reviews 导出 | `ASIN-US-Reviews-日期.xlsx` |
+| ExpandKeywords 关键词 | 可选 | 卖家精灵 ExpandKeywords 导出 | `ExpandKeywords-US-...日期.xlsx` |
+| US-Market 品类 | 可选 | 卖家精灵 Last-30-days 导出 | `US-Market-<品类>-Last-30-days-...xlsx` |
 
-### Linux 服务器部署（Nginx + Gunicorn）
+品类由 BSR 文件名自动识别，无需手动选择。
 
-#### 1. 安装系统依赖
+## 操作流程
 
-```bash
-# Ubuntu/Debian
-sudo apt update
-sudo apt install python3 python3-pip python3-venv nginx
+1. 网站首页上传 BSR（必填）+ 其他 3 份（可选）
+2. 点「生成选品评估报告」
+3. 等 **2-5 分钟**（首次冷启动需调视觉 LLM 逐 ASIN 分析；同份数据二次跑约 30-60s 命中缓存）
+4. 完成后浏览器自动下载 .xlsx
 
-# CentOS/RHEL
-sudo yum install python3 python3-pip nginx
-```
+## 给内部同事用的零安装版
 
-#### 2. 上传代码并安装
-
-```bash
-# 创建项目目录
-sudo mkdir -p /var/www/report_generator
-sudo chown -R $USER:$USER /var/www/report_generator
-
-# 上传代码到该目录
-# 然后进入目录
-cd /var/www/report_generator
-
-# 创建虚拟环境
-python3 -m venv venv
-source venv/bin/activate
-
-# 安装依赖
-pip install -r requirements.txt
-pip install gunicorn
-```
-
-#### 3. 配置 Gunicorn
-
-创建 `gunicorn_config.py`：
-
-```python
-bind = "127.0.0.1:8000"
-workers = 4
-worker_class = "sync"
-max_requests = 1000
-timeout = 120
-```
-
-#### 4. 启动 Gunicorn
-
-```bash
-# 启动服务
-gunicorn -c gunicorn_config.py app:app
-
-# 设置开机自启（使用 systemd）
-sudo nano /etc/systemd/system/report-generator.service
-```
-
-写入以下内容：
-
-```ini
-[Unit]
-Description=Report Generator Service
-After=network.target
-
-[Service]
-User=www-data
-Group=www-data
-WorkingDirectory=/var/www/report_generator
-Environment="PATH=/var/www/report_generator/venv/bin"
-ExecStart=/var/www/report_generator/venv/bin/gunicorn -c /var/www/report_generator/gunicorn_config.py app:app
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
-
-启用服务：
-
-```bash
-sudo systemctl enable report-generator
-sudo systemctl start report-generator
-```
-
-#### 5. 配置 Nginx 反向代理
-
-```bash
-sudo nano /etc/nginx/sites-available/report-generator
-```
-
-写入以下内容：
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;  # 替换为你的域名或IP
-
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 120s;
-        client_max_body_size 100M;
-    }
-}
-```
-
-启用站点：
-
-```bash
-sudo ln -s /etc/nginx/sites-available/report-generator /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl restart nginx
-```
-
-#### 6. 配置 HTTPS（可选但推荐）
-
-使用 Let's Encrypt 免费证书：
-
-```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.com
-```
-
-### Windows Server 部署（IIS）
-
-1. 安装 Python via [Python.org](https://www.python.org/downloads/)
-2. 安装 IIS URL Rewrite 模块
-3. 使用 FastCGI 部署 Flask 应用
-4. 配置反向代理到 Flask 端口
-
-### Docker 部署（推荐）
-
-创建 `Dockerfile`：
-
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-COPY . .
-
-EXPOSE 8000
-CMD ["python", "app.py"]
-```
-
-创建 `docker-compose.yml`：
-
-```yaml
-version: '3.8'
-services:
-  report-generator:
-    build: .
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./uploads:/app/uploads
-      - ./reports:/app/reports
-    restart: unless-stopped
-```
-
-运行：
-
-```bash
-docker-compose up -d
-```
-
-## 使用方法
-
-### 1. 准备数据文件
-
-**BSR 数据文件（必填）：**
-- 使用卖家精灵导出 BSR Excel 文件
-- 文件需包含 "US" 工作表
-- 建议命名格式：`BSR(...)-100-US-日期.xlsx`
-
-**评论数据文件（可选，支持多个）：**
-- 使用卖家精灵导出评论 Excel 文件
-- 文件名需包含 "Reviews"
-- 建议命名格式：`ASIN-US-Reviews-日期.xlsx`
-
-**关键词文件（可选）：**
-- 使用卖家精灵 ExpandKeywords 导出
-- 建议命名格式：`ExpandKeywords-US-ASIN-batch(...)-日期.xlsx`
-- 提供后报告会生成关键词竞争度、PPC Bid 与关键词贡献度分析
-
-**US-Market 品类数据（可选）：**
-- 使用卖家精灵品类 Last-30-days 导出
-- 建议命名格式：`US-Market-<Category>-Last-30-days-...xlsx`
-- 提供后报告会生成「US 市场品类」Sheet
-
-### 2. 上传文件
-
-1. 打开网站首页
-2. 点击"选择文件"上传 BSR 数据文件（必填）
-3. 可选择上传多个评论文件
-4. 点击"生成选品评估报告"
-
-### 3. 下载报告
-
-等待报告生成完成后，浏览器会自动下载 Excel 文件。
-
-## 报告包含内容
-
-| # | Sheet | 内容说明 |
-|---|-------|---------|
-| 1 | 市场分析 | 类目规模、价格分布、产品类型收益对比 |
-| 2 | 竞争分析 | 品牌集中度、中国卖家占比、新品存活率、广告竞争格局 |
-| 3 | BSR TOP100 | 完整产品数据表 |
-| 4 | 竞品分析 | 竞品参数提取（标题 + Bullet Points）、重点 ASIN 参数深度、卖点与差评 TOP |
-| 5 | 推荐入场价 | 各产品类型定价建议（按统一评分排序） |
-| 6 | 产品上新方向 | 上新决策矩阵 + 优先级说明（数据驱动的叙述） |
-| 7 | 评论汇总 | 原始评论数据 |
-| 8 | 关键词分析 | 关键词竞争度、PPC Bid、关键词贡献度排名（需上传 ExpandKeywords 文件） |
-| 9 | US 市场品类 | 品类级 Top 产品与价格区间（需上传 US-Market 文件） |
-| 10 | 综合结论 | 首推入场品类（含推荐功能参数 + 差异化升级方向） |
+打包好的 `D:\选品报告生成系统\选品报告生成系统.zip`（约 120MB）发给同事：解压 → 双击根目录 `启动.bat` → 浏览器自动开 `http://localhost:8002` → 直接用。内含独立 Python + 全部依赖，零环境配置。
 
 ## 目录结构
 
 ```
 web_report_generator/
-├── app.py                 # Flask 主程序
-├── requirements.txt       # Python 依赖
-├── README.md              # 说明文档
-├── templates/
-│   └── index.html         # 前端页面
-├── uploads/               # 临时上传目录（自动创建）
-└── reports/               # 生成的报告目录（自动创建）
+├── app.py                    # Flask 主程序（路由 + Excel 生成）
+├── requirements.txt
+├── .env.example              # 配置模板（复制为 .env 填 key）
+├── README.md
+├── core/
+│   ├── packs_runtime.py      # 5 个并发 analyzer 编排 + 视觉聚类
+│   └── asin_collection_*.py  # ASIN 采集清单生成
+├── llm/
+│   ├── client.py             # LLM client（含 cache、retry）
+│   ├── key_pool.py           # 多 key round-robin 池
+│   ├── cache.py              # SHA256 内容哈希缓存
+│   ├── analyzers/            # 14 个分析器（BSR/VOC/视觉/Spec 等）
+│   ├── prompts/              # 各分析器对应的 prompt
+│   ├── providers/            # qwen / doubao provider 适配
+│   └── schemas.py            # Pydantic 输出 schema
+├── config/llm_config.py      # LLM provider 配置
+├── utils/                    # 文件名解析、日志、批处理工具
+├── templates/index.html      # 前端表单页面
+├── llm_cache/                # 运行时缓存（gitignored，可删）
+├── reports/                  # 生成的报告（gitignored）
+└── uploads/                  # 临时上传文件（gitignored）
 ```
 
 ## 常见问题
 
-### Q: 上传文件时报错"文件太大"
-A: 默认限制 100MB，如需调整，修改 `app.py` 中的 `MAX_CONTENT_LENGTH`
+**Q: 报告生成 5 分钟太慢，能加速吗？**
+单跑 5 分钟里视觉 LLM（100 ASIN × 8 路并发）占大头，DashScope 默认配额下基本是物理极限。如果业务员有真并发需求，**不是缩短单跑时间**，而是让多窗口并发跑——配多 key + 在阿里云后台申请提额。
 
-### Q: 报告生成很慢
-A: 这是正常的，500条评论大约需要10-30秒处理时间
+**Q: 「out of quota」或 429 报错？**
+阿里云百炼控制台「限流提额」菜单申请提高 RPM/TPM/QPS。需要申请的模型：`qwen-plus`、`qwen-max`（或 `qwen3-max`）、`qwen-vl-max`（或 `qwen3-vl-plus`）。
 
-### Q: 如何添加更多产品类型分类？
-A: 修改 `app.py` 中的 `classify_product()` 函数
+**Q: 端口 8002 被占用？**
+编辑 `.env` 的 `FLASK_PORT` 改成其他端口，重启 `python app.py`。
 
-### Q: 如何支持其他数据源格式？
-A: 修改 `generate_report()` 函数中的列名映射逻辑
+**Q: 想本地测试不烧 LLM 钱？**
+设置环境变量 `LLM_CACHE_REUSE=1`，所有 LLM 缓存复用（仅 dev 调样式用，不要用于真实业务）。
+
+**Q: 文件名/状态文件冲突（多人同时跑）？**
+新版已修：每个 /upload 请求生成独立 session_id，文件名加 uuid 后缀，状态文件按 sid 隔离，前端轮询带 sid 参数。多窗口并发不会再撞。
 
 ## 技术支持
 
-如有问题，请在 GitHub 提交 issue：
-https://github.com/18782946926/web-report-generator/issues
+GitHub issues：https://github.com/18782946926/amazon-product-selection-report/issues
 
 ## 许可证
 
