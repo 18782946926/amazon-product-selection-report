@@ -302,8 +302,8 @@
 
     <!-- 顶部导航 -->
     <div class="navbar">
-        <span class="navbar-title">选品报告生成系统</span>
-        <span class="navbar-sub">FBA选品 → BSR分析 / 竞品差评 / 上新方向</span>
+        <span class="navbar-title">通用品类选品报告生成系统</span>
+        <span class="navbar-sub">任意品类自动适配 · LLM 深度分析 4 份源数据 · 10-Sheet 可执行报告</span>
     </div>
 
     <div class="main">
@@ -337,8 +337,13 @@
                         <input type="file" id="bsr_file" name="bsr_file" accept=".xlsx,.xls" required>
                         <span class="upload-icon" id="bsrIcon">📁</span>
                         <div class="upload-text" id="bsrText">点击选择文件，或将文件拖拽到此处</div>
-                        <div class="upload-hint" id="bsrHint">仅支持 .xlsx 格式 &nbsp;|&nbsp; 卖家精灵导出的 BSR Excel（需含"US"工作表）</div>
+                        <div class="upload-hint" id="bsrHint">仅支持 .xlsx 格式 &nbsp;|&nbsp; 卖家精灵导出的 BSR Excel（需含"US"工作表）&nbsp;|&nbsp; <b>品类自动识别</b></div>
                         <div class="upload-selected" id="bsrSelected"></div>
+                    </div>
+                    <!-- 识别品类预览（上传 BSR 后立即显示）-->
+                    <div id="categoryPreview" style="display:none; margin-top:10px; padding:10px 14px; background:#f0f7ff; border:1px solid #91caff; border-radius:6px; font-size:13px; color:#003a8c;">
+                        <span style="font-weight:600;">识别品类：</span><span id="catName">-</span>
+                        <span style="color:#666; margin-left:12px;">（系统将基于此调用 LLM 生成定制化分析；无需手动选择品类）</span>
                     </div>
                 </div>
 
@@ -374,17 +379,17 @@
                     <div class="file-list" id="marketFileList"></div>
                 </div>
 
-                <!-- 第四步：关键词反查文件 -->
+                <!-- 第四步：关键词文件 -->
                 <div style="margin-bottom: 24px;">
                     <div class="step-header">
                         <div class="step-num">4</div>
-                        <div class="step-label">上传关键词反查文件（可选，用于关键词竞争度分析）</div>
+                        <div class="step-label">上传 ExpandKeywords 关键词文件（可选，用于关键词竞争度分析）</div>
                     </div>
                     <div class="upload-zone" id="keywordZone">
                         <input type="file" id="keyword_file" name="keyword_file" accept=".xlsx,.xls">
                         <span class="upload-icon" id="keywordIcon">🔍</span>
-                        <div class="upload-text" id="keywordText">点击选择 ReverseASIN 关键词文件</div>
-                        <div class="upload-hint" id="keywordHint">卖家精灵 ReverseASIN 导出，文件名含 "ReverseASIN" 或 "Keyword"</div>
+                        <div class="upload-text" id="keywordText">点击选择 ExpandKeywords 关键词文件</div>
+                        <div class="upload-hint" id="keywordHint">卖家精灵 ExpandKeywords 导出，文件名含 "ExpandKeywords" 或 "Keyword"</div>
                         <div class="upload-selected" id="keywordSelected"></div>
                     </div>
                     <div class="file-list" id="keywordFileList"></div>
@@ -395,10 +400,16 @@
                     <b>注意：</b>本系统仅支持<b>卖家精灵</b>导出格式。BSR 文件需包含 "US" 工作表，评论文件名需以 ASIN 开头（如 <b>B00KWRM78E-US-Reviews.xlsx</b>），且文件名中包含 "Reviews" 关键字。
                 </div>
 
+                <!-- 推荐工作流 -->
+                <div class="format-tip" style="background:#fff7e6; border-color:#ffd591; color:#874d00; margin-bottom:14px;">
+                    <b>推荐工作流：</b>① 先点【先生成 ASIN 采集清单】→ 拿到 12-18 个高优先级 ASIN ② 在卖家精灵按清单下载这些 ASIN 的评论 ③ 上传评论后点【生成选品评估报告】出完整 10-Sheet 报告。
+                </div>
+
                 <!-- 提交 -->
                 <div>
                     <button type="button" class="submit-btn" id="submitBtn" onclick="uploadFiles()">生成选品评估报告</button>
-                    <span style="margin-left:12px; font-size:12px; color:#999;">根据数据量大小，可能需要 10-60 秒</span>
+                    <button type="button" class="submit-btn" id="asinListBtn" style="background:#fa8c16; margin-left:10px;" onclick="generateAsinList()">📋 先生成 ASIN 采集清单（无需评论）</button>
+                    <span style="margin-left:12px; font-size:12px; color:#999;">完整报告首次 2-5 分钟（视觉/LLM 调用），缓存命中 30-60 秒；ASIN 清单 &lt; 5 秒</span>
                 </div>
             </form>
 
@@ -406,21 +417,23 @@
             <div id="downloadArea" style="display:none; margin-top:20px; padding:20px; background:#f0fff4; border:1px solid #b7eb8f; border-radius:6px; text-align:center;">
                 <div style="font-size:14px; color:#135200; margin-bottom:12px;">
                     <span style="font-size:20px;">✅</span><br>
-                    报告已生成完毕
+                    <span id="downloadAreaTitle">报告已生成完毕</span>
                 </div>
                 <a id="downloadBtn" href="#" class="submit-btn" style="display:inline-block; text-decoration:none; background:#389e0d;">
                     📥 下载选品评估报告
                 </a>
-                <div style="font-size:12px; color:#999; margin-top:10px;">点击即可下载 Excel 报告</div>
+                <div style="font-size:12px; color:#999; margin-top:10px;" id="downloadAreaHint">点击即可下载 Excel 报告</div>
+                <!-- LLM 状态详情（生成完成后显示）-->
+                <div id="packsStatus" style="margin-top:14px; padding-top:12px; border-top:1px dashed #b7eb8f; font-size:12px; color:#444; text-align:left;"></div>
             </div>
 
             <!-- 加载进度 -->
             <div class="loading" id="loading">
-                <div class="loading-text">正在分析数据，生成报告中...</div>
+                <div class="loading-text" id="loadingPhase">正在分析数据，生成报告中...</div>
                 <div class="progress-bar-wrap">
                     <div class="progress-bar"></div>
                 </div>
-                <div class="loading-text" style="color:#1a56c4;">请勿关闭页面</div>
+                <div class="loading-text" style="color:#1a56c4;">请勿关闭页面 &nbsp;|&nbsp; <span id="elapsed">0</span>s</div>
             </div>
         </div>
 
@@ -431,8 +444,8 @@
                 <li>从<b>卖家精灵</b>导出目标类目的 BSR Excel 文件（.xlsx），上传到第一步。</li>
                 <li>（可选）导出各 ASIN 的评论文件，批量上传到第二步，可生成差评痛点分析。</li>
                 <li>（可选）导出 <b>Market 市场分析</b>文件到第三步，可生成类目趋势、季节性、生命周期分析。</li>
-                <li>（可选）导出 <b>ReverseASIN 关键词反查</b>文件到第四步，可生成关键词竞争度、PPC Bid 分析。</li>
-                <li>点击"生成选品评估报告"，等待 10-60 秒，系统完成分析后自动下载 Excel 报告。</li>
+                <li>（可选）导出 <b>ExpandKeywords 关键词</b>文件到第四步，可生成关键词竞争度、PPC Bid 分析。</li>
+                <li>点击"生成选品评估报告"，等待 2-5 分钟（首次冷启动，需调用视觉 LLM 分析每个 ASIN）；同份数据二次跑约 30-60 秒（缓存命中）。系统完成分析后自动下载 Excel 报告。</li>
                 <li>生成的报告包含 <b>10 个分析 Sheet</b>。</li>
             </ul>
 
@@ -454,15 +467,15 @@
                 </thead>
                 <tbody>
                     <tr><td><span class="tag tag-blue">1</span></td><td>市场分析</td><td>类目月收入规模、价格分布、各产品类型收益对比</td></tr>
-                    <tr><td><span class="tag tag-blue">2</span></td><td>竞争分析</td><td>品牌集中度、卖家分布、<b>核心关键词竞争度</b>（需关键词反查或Market文件）、<b>新品推广难度评估</b></td></tr>
+                    <tr><td><span class="tag tag-blue">2</span></td><td>竞争分析</td><td>品牌集中度、卖家分布、<b>核心关键词竞争度</b>（需 ExpandKeywords 或 Market 文件）、<b>新品推广难度评估</b></td></tr>
                     <tr><td><span class="tag tag-blue">3</span></td><td>BSR TOP100</td><td>完整100个竞品数据，含毛利率估算</td></tr>
                     <tr><td><span class="tag tag-blue">4</span></td><td>推荐入场价</td><td>6种产品类型定价区间、P25-P75分析、利润测算</td></tr>
-                    <tr><td><span class="tag tag-blue">5</span></td><td>竞品卖点与差评</td><td><b>Top 10 竞品参数横向对比</b> + 8维度正负向卖点/差评分析</td></tr>
-                    <tr><td><span class="tag tag-green">6</span></td><td>产品上新方向</td><td>7个新品机会方向、P1-P4优先级、行动计划总结</td></tr>
-                    <tr><td><span class="tag tag-blue">7</span></td><td>评论数据汇总</td><td>原始评论数据、差评高亮标记、高频痛点/好评词Top10</td></tr>
-                    <tr><td><span class="tag tag-orange">8</span></td><td>类目趋势</td><td>月度销售走势、核心词搜索趋势、季节性波动、生命周期判断、集中度（需Market文件）</td></tr>
-                    <tr><td><span class="tag tag-red">9</span></td><td>风险预估</td><td>品类自适应风险矩阵：专利/UL/FCC/UN38.3/CPSIA/平台政策 + 合规清单</td></tr>
-                    <tr><td><span class="tag tag-green">10</span></td><td>选品综合结论</td><td>8 维度加权评分、综合星级评级、首推品类、六点最终建议</td></tr>
+                    <tr><td><span class="tag tag-blue">5</span></td><td>竞品卖点与差评</td><td><b>Top 10 竞品参数横向对比</b> + LLM 动态聚类正负向卖点/差评分析</td></tr>
+                    <tr><td><span class="tag tag-green">6</span></td><td>产品上新方向</td><td>新品机会方向、P1-P4优先级、行动计划（基于实际竞品 + LLM 痛点分析）</td></tr>
+                    <tr><td><span class="tag tag-blue">7</span></td><td>评论数据汇总</td><td>原始评论 + LLM 动态聚类痛点/卖点（含原文引用，无幻觉）</td></tr>
+                    <tr><td><span class="tag tag-orange">8</span></td><td>类目趋势</td><td>LLM 趋势洞察：生命周期、季节性、需求方向、风险信号（需Market文件）</td></tr>
+                    <tr><td><span class="tag tag-red">9</span></td><td>风险预估</td><td>合规风险矩阵：专利/UL/FCC/UN38.3/CPSIA/平台政策 + 合规清单</td></tr>
+                    <tr><td><span class="tag tag-green">10</span></td><td>选品综合结论</td><td>8 维度加权评分 + LLM 综合策略 + 升级建议（带 supporting_fields 数据引用）</td></tr>
                 </tbody>
             </table>
             <div style="margin-top:12px; font-size:12px; color:#666;">
@@ -472,10 +485,18 @@
             </div>
         </div>
 
-        <div class="footer">选品报告生成系统 v2.1 &nbsp;|&nbsp; 仅支持卖家精灵导出格式</div>
+        <div class="footer">通用品类选品报告生成系统 v3.0 &nbsp;|&nbsp; 仅支持卖家精灵导出格式 &nbsp;|&nbsp; LLM 驱动 · 任意品类自适应</div>
     </div>
 
     <script>
+        // 文件大小格式化（曾经遗漏导致 ReferenceError 中断后续 JS）
+        function formatSize(bytes) {
+            if (!bytes && bytes !== 0) return '';
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+        }
+
         // BSR文件选择
         document.getElementById('bsr_file').addEventListener('change', function(e) {
             const file = e.target.files[0];
@@ -483,6 +504,7 @@
             const icon = document.getElementById('bsrIcon');
             const text = document.getElementById('bsrText');
             const hint = document.getElementById('bsrHint');
+            const preview = document.getElementById('categoryPreview');
             if (file) {
                 el.textContent = '📁 已选择：' + file.name;
                 document.getElementById('bsrZone').style.borderColor = '#1a56c4';
@@ -490,8 +512,20 @@
                 if (icon) icon.style.display = 'none';
                 if (text) text.style.display = 'none';
                 if (hint) hint.style.display = 'none';
+                // 立即调 /detect_category 显示识别到的品类
+                const fd = new FormData();
+                fd.append('bsr_file', file);
+                fetch('/detect_category', { method: 'POST', body: fd })
+                    .then(r => r.json())
+                    .then(d => {
+                        if (d.category_id) {
+                            document.getElementById('catName').textContent = d.display_name + ' (' + d.category_id + ')';
+                            preview.style.display = 'block';
+                        }
+                    }).catch(() => {});
             } else {
                 el.textContent = '';
+                preview.style.display = 'none';
                 if (icon) icon.style.display = 'block';
                 if (text) text.style.display = 'block';
                 if (hint) hint.style.display = 'block';
@@ -603,6 +637,44 @@
         });
 
         // 上传文件（AJAX）
+        let statusTimer = null;
+        let elapsedTimer = null;
+        let startTs = 0;
+
+        // 生成一次性 session_id（16 字符 hex）—— 让多标签并发时进度互不串扰
+        function genSessionId() {
+            const a = new Uint8Array(8);
+            (window.crypto || window.msCrypto).getRandomValues(a);
+            return Array.from(a, function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+        }
+
+        function startStatusPolling(sid) {
+            if (statusTimer) return;
+            const phaseEl = document.getElementById('loadingPhase');
+            statusTimer = setInterval(function() {
+                fetch('/status?sid=' + encodeURIComponent(sid))
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        const s = d.status || '';
+                        if (s.startsWith('phase:')) {
+                            phaseEl.textContent = s.slice(6);
+                        } else if (s === 'generating') {
+                            phaseEl.textContent = '正在启动分析…';
+                        } else if (s.startsWith('error:')) {
+                            phaseEl.textContent = '出错：' + s.slice(6);
+                        } else if (s.startsWith('done:')) {
+                            phaseEl.textContent = '生成完成';
+                        }
+                    })
+                    .catch(function() {});
+            }, 2000);
+        }
+
+        function stopStatusPolling() {
+            if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+            if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+        }
+
         function uploadFiles() {
             const bsrFile = document.getElementById('bsr_file').files[0];
             if (!bsrFile) {
@@ -618,8 +690,19 @@
             document.querySelector('.progress-bar').offsetHeight;
             document.querySelector('.progress-bar').style.animation = 'progress 40s ease-out forwards';
 
+            // 启动进度轮询 + 耗时计时（每次上传生成独立 sid，让本标签的轮询只看到自己的进度）
+            startTs = Date.now();
+            const elapsedEl = document.getElementById('elapsed');
+            elapsedEl.textContent = '0';
+            elapsedTimer = setInterval(function() {
+                elapsedEl.textContent = Math.round((Date.now() - startTs) / 1000);
+            }, 1000);
+            const sid = genSessionId();
+            startStatusPolling(sid);
+
             const formData = new FormData();
             formData.append('bsr_file', bsrFile);
+            formData.append('session_id', sid);
             const reviewFiles = document.getElementById('review_files').files;
             for (let i = 0; i < reviewFiles.length; i++) {
                 formData.append('review_files', reviewFiles[i]);
@@ -636,6 +719,7 @@
             fetch('/upload', { method: 'POST', body: formData })
                 .then(function(response) { return response.json(); })
                 .then(function(data) {
+                    stopStatusPolling();
                     if (data.success) {
                         document.getElementById('submitBtn').textContent = '生成完成';
                         document.getElementById('loading').classList.remove('show');
@@ -646,21 +730,92 @@
                         dlBtn.href = '/download/' + encodeURIComponent(data.filename);
                         dlBtn.download = data.filename;
                         document.getElementById('downloadArea').style.display = 'block';
+                        // 显示 LLM 状态
+                        renderPacksStatus(data.packs_status || {});
                     } else {
                         alert('生成失败：' + (data.error || '未知错误'));
                         resetUI();
                     }
                 })
                 .catch(function(err) {
+                    stopStatusPolling();
                     alert('上传出错：' + err.message);
                     resetUI();
                 });
         }
 
         function resetUI() {
+            stopStatusPolling();
             document.getElementById('submitBtn').disabled = false;
             document.getElementById('submitBtn').textContent = '生成选品评估报告';
             document.getElementById('loading').classList.remove('show');
+            const asinBtn = document.getElementById('asinListBtn');
+            if (asinBtn) {
+                asinBtn.disabled = false;
+                asinBtn.textContent = '📋 先生成 ASIN 采集清单（无需评论）';
+            }
+        }
+
+        function generateAsinList() {
+            const bsrFile = document.getElementById('bsr_file').files[0];
+            if (!bsrFile) {
+                alert('请先上传 BSR 数据文件');
+                return;
+            }
+            const btn = document.getElementById('asinListBtn');
+            btn.disabled = true;
+            btn.textContent = '正在筛选 ASIN...';
+            document.getElementById('downloadArea').style.display = 'none';
+
+            const formData = new FormData();
+            formData.append('bsr_file', bsrFile);
+            const marketFile = document.getElementById('market_file').files[0];
+            if (marketFile) formData.append('market_file', marketFile);
+
+            fetch('/generate_asin_list', { method: 'POST', body: formData })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        const dlBtn = document.getElementById('downloadBtn');
+                        dlBtn.href = '/download/' + encodeURIComponent(data.filename);
+                        dlBtn.download = data.filename;
+                        dlBtn.textContent = '📥 下载 ASIN 采集清单';
+                        document.getElementById('downloadAreaTitle').textContent =
+                            (data.category_name || '') + ' ASIN 采集清单已生成（共 ' + (data.count || 0) + ' 条）';
+                        document.getElementById('downloadAreaHint').textContent =
+                            '运营请按清单去卖家精灵下载对应 ASIN 评论，再回来上传生成完整报告';
+                        document.getElementById('packsStatus').innerHTML = '';
+                        document.getElementById('downloadArea').style.display = 'block';
+                        btn.textContent = '📋 重新生成 ASIN 采集清单';
+                        btn.disabled = false;
+                    } else {
+                        alert('生成失败：' + (data.error || '未知错误'));
+                        btn.textContent = '📋 先生成 ASIN 采集清单（无需评论）';
+                        btn.disabled = false;
+                    }
+                })
+                .catch(function(err) {
+                    alert('请求出错：' + err.message);
+                    btn.textContent = '📋 先生成 ASIN 采集清单（无需评论）';
+                    btn.disabled = false;
+                });
+        }
+
+        function renderPacksStatus(s) {
+            const box = document.getElementById('packsStatus');
+            if (!s || s.error) {
+                box.innerHTML = '<span style="color:#cf1322;">⚠ LLM 整体不可用，已用全量降级模板生成报告' + (s && s.error ? '（' + s.error + '）' : '') + '</span>';
+                return;
+            }
+            const tag = (label, real) => '<span style="display:inline-block; margin:2px 6px 2px 0; padding:2px 8px; border-radius:4px; ' +
+                (real ? 'background:#d4edda; color:#155724;' : 'background:#fff3cd; color:#856404;') + '">' +
+                (real ? '✓ ' : '⚠ ') + label + (real ? ' LLM' : ' 降级') + '</span>';
+            box.innerHTML =
+                '<div style="margin-bottom:6px;"><b>识别品类：</b>' + (s.display_name || '-') + ' <span style="color:#999;">(' + (s.category_id || '-') + ')</span></div>' +
+                '<div><b>分析状态：</b>' +
+                tag('市场结构', s.market_real) + tag('用户评论', s.voc_real) +
+                tag('关键词流量', s.traffic_real) + tag('类目趋势', s.trend_real) +
+                tag('综合策略', s.synthesis_real) + '</div>';
         }
 
         // 拖拽效果

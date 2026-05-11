@@ -35,3 +35,14 @@ Thumbs.db
 *.xls
 .env
 .env.local
+
+# LLM 运行时缓存
+llm_cache/
+*.bak
+
+# 调试/开发产物
+new_report_dump.json
+flask_stdout.log
+flask_stderr.log
+*.spec
+launcher.py

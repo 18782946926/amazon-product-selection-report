@@ -1,6 +1,22 @@
 # 选品报告生成系统 - Python依赖
 
+# Web 框架与数据处理
 flask>=2.3.0
 pandas>=1.5.0
 openpyxl>=3.1.0
 werkzeug>=2.3.0
+
+# LLM 接入（默认 DeepSeek，OpenAI 兼容协议）
+openai>=1.40.0
+# 通义千问 SDK（可选，启用 LLM_PROVIDER=qwen 时需要）
+dashscope>=1.20.0
+# 豆包 SDK（可选，启用 LLM_PROVIDER=doubao 时需要）
+volcengine-python-sdk[ark]>=1.0.94
+
+# 数据校验、重试、环境变量
+pydantic>=2.5.0
+tenacity>=8.2.0
+python-dotenv>=1.0.0
+
+# 模板渲染（Sheet10 LLM 失败时的降级模板）
+jinja2>=3.1.0
