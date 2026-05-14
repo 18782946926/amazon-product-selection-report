@@ -4762,7 +4762,11 @@ def generate_report(bsr_path, review_paths, output_path, market_path=None, keywo
         _cnt = len(_sub)
         if _cnt == 0:
             continue
-        _avg_sales = int(_sub['Monthly Sales'].mean()) if 'Monthly Sales' in _sub.columns else 0
+        if 'Monthly Sales' in _sub.columns:
+            _mean_sales = pd.to_numeric(_sub['Monthly Sales'], errors='coerce').mean()
+            _avg_sales = int(_mean_sales) if pd.notna(_mean_sales) else 0
+        else:
+            _avg_sales = 0
         # 竞争强度按 SKU 占比判断（纯数据驱动，不再硬编码）
         _share = _cnt / max(_total_sku, 1)
         if _share >= 0.35:
