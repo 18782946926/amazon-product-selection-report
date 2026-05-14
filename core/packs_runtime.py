@@ -44,7 +44,7 @@ from llm.schemas import (
     TrendInsightPack,
     VOCPack,
 )
-from utils.category_id import extract_from_bsr_filename
+from utils.category_id import extract_from_bsr_filename, extract_from_bsr_content
 
 log = logging.getLogger(__name__)
 
@@ -451,6 +451,229 @@ def _parse_numeric_values(raw: list[str]) -> list[float]:
     return out
 
 
+def _select_primary_spec_dim(dim_stats: dict) -> tuple[str | None, dict | None]:
+    """从候选维度里挑一个最强切分维度。返 (dim_name, stats) 或 (None, None)。
+
+    打分（合并三项）：
+      - 命中率（match coverage）权重 0.4
+      - 区分度（distinct / 5）权重 0.3
+      - 重要性 = 核心 权重 0.3，否则 0.15
+    """
+    candidates = []
+    for name, st in dim_stats.items():
+        if st["coverage"] < 0.5:
+            continue
+        if st["distinct"] < 3:
+            continue
+        importance = (st["dim"].importance or "").strip().lower()
+        imp_weight = 1.0 if importance == "核心" else 0.5
+        score = (
+            0.4 * st["coverage"]
+            + 0.3 * min(st["distinct"] / 5.0, 1.0)
+            + 0.3 * imp_weight
+        )
+        candidates.append((name, score, st))
+    if not candidates:
+        return None, None
+    candidates.sort(key=lambda x: -x[1])
+    name, _score, st = candidates[0]
+    log.info(
+        "[Spec groupby] 选主切分维度: %s (score=%.2f, coverage=%.0f%%, distinct=%d, numeric=%s)",
+        name, _score, st["coverage"] * 100, st["distinct"], st["is_numeric"],
+    )
+    # 也 log 其他候选
+    for n, sc, _s in candidates[1:4]:
+        log.info("[Spec groupby]   备选: %s (score=%.2f)", n, sc)
+    return name, st
+
+
+def groupby_by_spec_dimensions(visual_labels: list, bsr_df: pd.DataFrame, spec_pack) -> list:
+    """按 SpecAnalyzer 抽出的关键参数维度聚类——形态单一品类的核心分类策略。
+
+    输入：
+      - visual_labels: 视觉 LLM 输出（保留材质/形态信息字段，但不再用作主分类键）
+      - bsr_df: BSR Top100 DataFrame（用于抽 title/bullets 跑全量 extract）
+      - spec_pack: SpecInsightPack（含 spec_dimensions 维度清单 + 正则 patterns）
+
+    返回 list[ProductSegment]。若维度都达不到切分阈值返空 list，调用方回退 form_label groupby。
+    """
+    from collections import defaultdict, Counter
+    from llm.analyzers.spec_analyzer import extract_specs_by_dimensions
+    from llm.schemas import ProductSegment
+
+    if not spec_pack or not spec_pack.spec_dimensions or spec_pack.is_fallback:
+        return []
+
+    _TOK = re.compile(r"[一-鿿]+|[a-z0-9]+")
+    title_col = next((c for c in bsr_df.columns if c.lower() == "product title" or c.lower() == "title"), None)
+    asin_col = next((c for c in bsr_df.columns if c.lower() == "asin"), None)
+    if not title_col or not asin_col:
+        log.warning("[Spec groupby] BSR df 缺 title 或 asin 列，回退")
+        return []
+    bullet_cols = [c for c in bsr_df.columns
+                   if any(k in c.lower() for k in ("bullet", "feature", "description"))]
+
+    # Step 1: 全量抽 specs
+    asin_to_text: dict[str, tuple[str, str]] = {}
+    for _, row in bsr_df.iterrows():
+        asin = str(row.get(asin_col, "")).strip()
+        if not asin or asin.lower() == "nan":
+            continue
+        title = str(row.get(title_col, "") or "")
+        bullets = " ".join(
+            str(row[c]) for c in bullet_cols
+            if pd.notna(row.get(c)) and str(row[c]).strip().lower() != "nan"
+        )
+        asin_to_text[asin] = (title, bullets)
+
+    dims = list(spec_pack.spec_dimensions)
+    asin_specs: dict[str, dict[str, str]] = {}
+    for asin, (title, bullets) in asin_to_text.items():
+        asin_specs[asin] = extract_specs_by_dimensions(title, bullets, dims)
+
+    total_asins = len(asin_to_text)
+    if total_asins == 0:
+        return []
+
+    # Step 2: 算每个维度的统计 → 选主切分维度
+    dim_stats: dict[str, dict] = {}
+    for dim in dims:
+        name = dim.name
+        raw_values = [asin_specs[a].get(name, "") for a in asin_specs]
+        nonempty = [v for v in raw_values if v]
+        coverage = len(nonempty) / total_asins
+        nums = _parse_numeric_values(nonempty)
+        is_numeric = len(nums) >= len(nonempty) * 0.6 and len(nums) >= 5
+        if is_numeric:
+            distinct = 3 if len(set(round(n, 2) for n in nums)) >= 3 else len(set(round(n, 2) for n in nums))
+        else:
+            distinct = len(set(v.strip().lower() for v in nonempty))
+        dim_stats[name] = {
+            "dim": dim,
+            "coverage": coverage,
+            "is_numeric": is_numeric,
+            "distinct": distinct,
+            "nums": nums,
+            "nonempty_count": len(nonempty),
+        }
+
+    primary_name, primary_st = _select_primary_spec_dim(dim_stats)
+    if not primary_name:
+        log.warning("[Spec groupby] 无符合阈值的切分维度（coverage≥50%% 且 distinct≥3），回退 form_label")
+        return []
+
+    primary_dim = primary_st["dim"]
+    primary_unit = (primary_dim.unit or "").strip()
+
+    # Step 3: 定档/桶名映射函数
+    if primary_st["is_numeric"]:
+        nums_sorted = sorted(primary_st["nums"])
+        n = len(nums_sorted)
+        p33 = nums_sorted[max(0, int(n * 0.33) - 1)]
+        p67 = nums_sorted[min(n - 1, int(n * 0.67))]
+        # 用 int 显示更清爽（如 150 而不是 150.0）
+        def _fmt(x: float) -> str:
+            if abs(x - int(x)) < 0.05:
+                return str(int(x))
+            return f"{x:.1f}"
+        p33_s, p67_s = _fmt(p33), _fmt(p67)
+        u = primary_unit
+        log.info("[Spec groupby] 数值档位 P33=%s, P67=%s (单位=%s)", p33_s, p67_s, u or "-")
+
+        def bucket_of(val: str) -> str | None:
+            parsed = _parse_numeric_values([val])
+            if not parsed:
+                return None
+            v = parsed[0]
+            if v < p33:
+                return f"{primary_name}低档（<{p33_s}{u}）"
+            if v < p67:
+                return f"{primary_name}中段（{p33_s}-{p67_s}{u}）"
+            return f"{primary_name}高档（≥{p67_s}{u}）"
+    else:
+        def bucket_of(val: str) -> str | None:
+            v = (val or "").strip()
+            if not v:
+                return None
+            return f"{v}款"
+
+    # Step 4: 按桶分组 visual_labels
+    groups: dict[str, list] = defaultdict(list)
+    missing: list = []
+    seen_asins: set[str] = set()
+    for label in (visual_labels or []):
+        asin = str(getattr(label, "asin", "") or "").strip()
+        if not asin or asin in seen_asins:
+            continue
+        seen_asins.add(asin)
+        val = asin_specs.get(asin, {}).get(primary_name, "")
+        b = bucket_of(val) if val else None
+        if not b:
+            missing.append(label)
+            continue
+        groups[b].append(label)
+
+    # Step 5: SKU < 5 的小桶合并到「其他细分」
+    other_labels: list = []
+    valid_groups = []
+    for nm, labels in groups.items():
+        if len(labels) < 5:
+            other_labels.extend(labels)
+        else:
+            valid_groups.append((nm, labels))
+    valid_groups.sort(key=lambda kv: -len(kv[1]))
+
+    def _build_segment(name: str, labels: list, description: str) -> "ProductSegment":
+        token_counter: Counter = Counter()
+        material_counter: Counter = Counter()
+        form_counter: Counter = Counter()
+        for lbl in labels:
+            ptf = str(getattr(lbl, "product_type_free", "") or "").lower()
+            for tok in _TOK.findall(ptf):
+                if len(tok) >= 2:
+                    token_counter[tok] += 1
+            mat = str(getattr(lbl, "material_label", "") or "").strip()
+            form = str(getattr(lbl, "form_label", "") or "").strip()
+            if mat:
+                material_counter[mat] += 1
+            if form:
+                form_counter[form] += 1
+        kws = [tok for tok, _ in token_counter.most_common(10)]
+        dom_mat = material_counter.most_common(1)[0][0] if material_counter else ""
+        dom_form = form_counter.most_common(1)[0][0] if form_counter else ""
+        return ProductSegment(
+            name=name,
+            description=description,
+            representative_keywords=kws,
+            material_attribute=dom_mat,
+            form_attribute=dom_form,
+            member_asins=[str(getattr(lbl, "asin", "") or "").strip() for lbl in labels],
+        )
+
+    segments: list = []
+    for nm, labels in valid_groups:
+        segments.append(_build_segment(
+            nm, labels,
+            f"按 {primary_name} 切分（共 {len(labels)} 个 SKU）",
+        ))
+
+    if other_labels:
+        segments.append(_build_segment(
+            "其他细分",
+            other_labels,
+            f"独立小品类合并（共 {len(other_labels)} 个 SKU）",
+        ))
+
+    if missing:
+        segments.append(_build_segment(
+            "未分类（缺关键参数）",
+            missing,
+            f"标题/bullets 里抓不到 {primary_name} 关键参数（共 {len(missing)} 个 SKU）",
+        ))
+
+    return segments
+
+
 def groupby_visual_labels(visual_labels: list) -> list:
     """按 form_label 单键 groupby，得到 4-8 个粗粒度形态大类。
 
@@ -554,7 +777,6 @@ def prepare_packs(
     api_key 显式传入时，本次 prepare_packs 所有 LLM 调用都用该 key（key pool 多窗口并发用）。
     """
     review_paths = review_paths or []
-    category_id = extract_from_bsr_filename(bsr_path)
     client = _try_make_client(api_key=api_key)
 
     if bsr_df is None:
@@ -562,10 +784,19 @@ def prepare_packs(
     # 中英列名规范化（对已是英文的文件幂等，Battery Chargers 这类中文列名版本会被映射）
     bsr_df = normalize_bsr_columns(bsr_df)
 
+    # 品类识别：内容优先（Category 列/标题词频），文件名仅作向后兼容
+    # 文件名 slug 是 unknown_* 兜底时 → 用内容 slug；标准命名走原路保持兼容
+    _fname_slug = extract_from_bsr_filename(bsr_path)
+    _content_slug, _content_hint = extract_from_bsr_content(bsr_df)
+    if _fname_slug.startswith("unknown_"):
+        category_id = _content_slug
+    else:
+        category_id = _fname_slug
+
     bsr_input = {"df": bsr_df, "category_id": category_id}
     # category_hint 用于 VOC cache 键隔离 + merge prompt 品类守门
-    # 此刻 BSR/Market 尚未跑完，display_name 未知，先用 category_id 占位（Battery_Chargers → "Battery Chargers"）
-    _voc_cat_hint = (category_id or "").replace("_", " ").strip() or "未知品类"
+    # 此刻 BSR/Market 尚未跑完，display_name 未知；内容 hint 优先，否则用 category_id 占位
+    _voc_cat_hint = _content_hint or (category_id or "").replace("_", " ").strip() or "未知品类"
     reviews_input = {"reviews": _load_reviews(review_paths), "category_hint": _voc_cat_hint}
 
     keyword_df = pd.DataFrame()
@@ -594,7 +825,8 @@ def prepare_packs(
     # 注意：Compliance 依赖 category_name（由 BSR 返回），所以 Compliance 放到第二阶段
     # display_name 先用 category_id 占位（Market/BSR 还没跑完），Synthesizer 再用真实 display_name；
     # SpecAnalyzer 与 BSRAnalyzer 并行，所以取 category_id 作为提示，已足以避免 LED 串品类
-    spec_input = {"df": bsr_df, "category_id": category_id, "display_name": category_id.replace('_', ' ')}
+    spec_input = {"df": bsr_df, "category_id": category_id,
+                  "display_name": _content_hint or category_id.replace('_', ' ')}
     analyzers = {
         "market": (BSRAnalyzer(client), bsr_input),
         "voc": (ReviewsAnalyzer(client), reviews_input),
@@ -624,7 +856,8 @@ def prepare_packs(
     if market_pack and market_pack.category_display_name:
         display_name = market_pack.category_display_name
     if not display_name:
-        display_name = category_id.replace("_", " ").title()
+        # LLM 失败兜底：用内容识别的 hint（Category 列尾段或标题词频），永远不用 filename slug
+        display_name = _content_hint or "本次品类"
 
     # 跨品类 pain_clusters 硬守门：即使 merge LLM 漏了品类守门，Python 再过滤一次
     # 触发场景：少数批次 ASIN 跨类（USB 充电 + LED 合体产品）使 merge 误把"亮度不足"升格为全局 pain
@@ -656,16 +889,32 @@ def prepare_packs(
         except Exception as e:
             log.warning("[LabelMerger] 异常，跳过合并: %s", e)
 
-    # 第一阶段半-b：用 form_label 单键 Groupby 做确定性聚类（替代 LLM Aggregator）
-    # 视觉 LLM 已 per-ASIN 输出结构化的 form_label（经 LabelMerger 合并后跨次稳定）。
-    # 这里纯代码 groupby，不依赖 LLM 抓阄——同输入必产同 segments。
-    # 失败兜底：保留 BSR Analyzer 原 segments
+    # 第一阶段半-b：优先用 SpecAnalyzer 抽出的关键参数做 groupby（形态单一品类下唯一有效信号）
+    # 失败回退 form_label 单键 groupby（视觉 LLM 输出已 LabelMerger 合并）。
+    # 全确定性 + 不依赖外部网络 + 复用现有 SpecAnalyzer 产物。
     if market_pack and market_pack.visual_labels and not market_pack.is_fallback:
         try:
-            new_segments = groupby_visual_labels(market_pack.visual_labels)
+            new_segments: list = []
+            # 优先尝试 spec 维度切分
+            if spec_pack and spec_pack.spec_dimensions and not spec_pack.is_fallback:
+                new_segments = groupby_by_spec_dimensions(
+                    market_pack.visual_labels, bsr_df, spec_pack,
+                )
+                if new_segments and len(new_segments) >= 2:
+                    log.info("[Taxonomy] Spec groupby 切出 %d 个桶（信号源=参数维度），覆盖 BSR 原 %d 个 segments",
+                             len(new_segments), len(market_pack.product_segments or []))
+                else:
+                    log.info("[Taxonomy] Spec groupby 未达切分阈值，回退 form_label")
+                    new_segments = []
+
+            # 兜底：spec 不够 → form_label 单键
+            if not new_segments:
+                new_segments = groupby_visual_labels(market_pack.visual_labels)
+                if new_segments and len(new_segments) >= 2:
+                    log.info("[Taxonomy] form_label Groupby 切出 %d 个桶（兜底），覆盖 BSR 原 %d 个 segments",
+                             len(new_segments), len(market_pack.product_segments or []))
+
             if new_segments and len(new_segments) >= 2:
-                log.info("[Taxonomy] Groupby 切出 %d 个桶（确定性，基于 form_label 单键，材质不参与分类），覆盖 BSR 原 %d 个 segments",
-                         len(new_segments), len(market_pack.product_segments or []))
                 for seg in new_segments:
                     log.info("[Taxonomy]   桶: %r (%d ASIN) | material=%r | form=%r | keywords=%s",
                              seg.name, len(seg.member_asins or []),
@@ -674,7 +923,7 @@ def prepare_packs(
                              (seg.representative_keywords or [])[:8])
                 market_pack.product_segments = new_segments
             else:
-                log.warning("[Taxonomy] Groupby 切桶不足 2 个，保留 BSR 原 segments 兜底")
+                log.warning("[Taxonomy] 切桶不足 2 个，保留 BSR 原 segments 兜底")
         except Exception as e:
             log.warning("[Taxonomy] Groupby 异常，保留 BSR 原 segments 兜底: %s", e)
 
